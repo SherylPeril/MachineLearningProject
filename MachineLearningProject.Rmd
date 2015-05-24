@@ -1,0 +1,131 @@
+---
+title: "Machine Learning Project"
+output: html_document
+---
+## Assignment
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+## Download and Clean Data
+```{r, cache = TRUE}
+## Download the data treating empty values as NA
+
+if (!file.exists("pml-training.csv")) {
+  fileUrl1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+  download.file(fileUrl1, destfile = "pml-training.csv", method = "curl")
+  library(tools)            
+  sink("download_metadata3.txt")
+  print("Download date:")
+  print(Sys.time() )
+  print("Download URL:")
+  print(fileUrl1)
+  print("Downloaded file Information")
+  print(file.info(""))
+  print("Downloaded file md5 Checksum")
+  print(md5sum("pml-training.csv"))
+  sink()
+}
+
+if (!file.exists("pml-testing.csv")) {
+  fileUrl2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+  download.file(fileUrl2, destfile = "pml-testing.csv", method = "curl")
+  library(tools)            
+  sink("download_metadata4.txt")
+  print("Download date:")
+  print(Sys.time() )
+  print("Download URL:")
+  print(fileUrl2)
+  print("Downloaded file Information")
+  print(file.info(""))
+  print("Downloaded file md5 Checksum")
+  print(md5sum("pml-testing.csv"))
+  sink()
+}
+## Read the data
+
+training <- read.csv("pml-training.csv",na.strings=c("NA",""), header=TRUE)
+testing <- read.csv("pml-testing.csv",na.strings=c("NA",""), header=TRUE)
+dim(training)
+dim(testing)
+```
+
+Assess how much missing data there is and remove columns with mostly NAs:
+
+```{r}
+  PCTNAtrain <- mean(is.na(training)) * 100
+  PCTNAtest <- mean(is.na(testing)) * 100
+  PCTNAtrain
+  PCTNAtest
+training <- training[, colSums(is.na(training)) < nrow(training) * 0.5]
+testing <- testing[, colSums(is.na(testing)) < nrow(testing) * 0.5]
+
+# Get rid of unneeded columns
+training <- training[,-c(1:7)]
+testing <- testing[,-c(1:7)]
+
+# Verify that the column names (excluding classe and problem_id) are identical in the training and test set.
+trainNames <- names(training)
+testNames <- names(testing)
+all.equal(trainNames[1:length(trainNames)-1], testNames[1:length(trainNames)-1])
+
+``` 
+
+##Choosing Models
+Models were chosen to represent various types of models to see which is the most effective for this type of analysis.  A basic CART  model (caret packages rpart) uses classification trees to search through each predictor and find a value that best splits the value into two groups.  The Classification Tree diagram displays how it works.
+
+```{r, cache = TRUE}
+library(caret)
+set.seed(32343)
+modelFit <- train(classe ~.,data=training, method="rpart")
+modelFit
+
+library(rattle)
+fancyRpartPlot(modelFit$finalModel)
+```
+
+The rpart model does not appear to be a good predictor for this data type, as the accuracy is low.  This method uses simple bootstrapping as its sampling schems.
+
+A more accurate regression tree uses an extension to bagging for classification.  The random forest model is shown below.
+
+```{r, cache = TRUE}
+set.seed(32343)
+fitControl <- trainControl(method="cv", number=3, allowParallel = TRUE, verboseIter = FALSE)
+modelFitrf <- train(classe ~.,data=training, method="rf",trControl=fitControl, importance=T)
+modelFitrf
+```
+
+The random forest presented a much better model for these data, as resulting accuracy is very high.
+
+Another type of model to consider is Naive Bayes, which assumes independence between predictors for model building.
+
+```{r, cache=TRUE, warning=FALSE}
+library(klaR)
+set.seed(32343)
+modelFitNB<-train(classe~.,data=training,method="nb",trControl=fitControl, importance=T)
+modelFitNB
+
+```
+
+This  model type has a much lower accuracy than random forest modeling, so we will use the random forest to conduct our prediction.
+
+##Estimating out-of-sample error from cross validation in Caret
+
+Because cross validation was done for the random forest model, we can estimate the out-of sample error for prediction using this model.
+
+```{r}
+modelFitrf$resample
+
+mean(modelFitrf$resample$Accuracy)
+
+OutOfSampleError <- 1 - mean(modelFitrf$resample$Accuracy)
+OutOfSampleError
+```
+
+At this point, we can make a prediction using the testing data set.
+
+```{r}
+pred <- predict(modelFitrf, testing)
+pred
+
+```
+
+
